@@ -1,8 +1,17 @@
 import { Client } from 'discord.js';
+import { readdirSync } from 'fs';
 import pino from 'pino';
+import { Command } from './Command';
+
+export interface ICommand {
+  path: string;
+  prefix: string;
+}
 
 export interface BotOptions {
   token?: string;
+
+  commands: ICommand;
 }
 
 export default class Bot {
@@ -11,10 +20,17 @@ export default class Bot {
 
   public logger: pino.Logger;
 
-  public constructor(options: BotOptions = {}) {
+  private commandsPath: string;
+  private commandsPrefix: string;
+  private commands: Array<Command> = [];
+
+  public constructor(options: BotOptions) {
     this.token = options.token;
     this._client = null;
     this.logger = pino();
+
+    this.commandsPath = options.commands.path;
+    this.commandsPrefix = options.commands.prefix
   }
 
   public get client(): Client {
@@ -35,6 +51,8 @@ export default class Bot {
       this._client = null;
       throw error;
     }
+
+    this.handleCommand();
   }
 
   public stop(): void {
@@ -43,5 +61,21 @@ export default class Bot {
     }
     this._client.destroy();
     this._client = null;
+  }
+
+  private handleCommand(): void {
+    const files = readdirSync(this.commandsPath);
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    this.commands = files.map((fileName: string) => require(`${this.commandsPath}/${fileName}`).default)
+
+    this.client.on('message', async (event) => {
+      if (!event.content.startsWith(this.commandsPrefix)) {
+        return;
+      }
+
+      const command = event.content.substring(1, event.content.length);
+      const execute = this.commands.find((cmd) => cmd.name === command);
+      await execute?.handler(event);
+    })
   }
 }
